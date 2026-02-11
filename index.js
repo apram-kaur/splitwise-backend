@@ -1,7 +1,13 @@
+require("dotenv").config();
+const connectDB = require("./config/db");
+
 const express = require("express");
+const expenseRoutes = require("./routes/expenseRoutes");
+
 
 const app = express();
 app.use(express.json());
+app.use("/api/expenses", expenseRoutes);
 
 // In-memory storage
 const users = [];
@@ -35,6 +41,7 @@ function getNetBalances() {
   return net;
 }
 
+connectDB();
 
 // TEST ROUTE
 app.get("/", (req, res) => {
@@ -112,57 +119,6 @@ app.post("/login", (req, res) => {
   });
 });
 
-// ADD EXPENSE
-app.post("/expenses", (req, res) => {
-  const { paidBy, amount, participants, splitType, splits } = req.body;
-
-  if (!paidBy || !amount || !splitType) {
-    return res.status(400).json({ error: "Invalid expense data" });
-  }
-
-  // EQUAL SPLIT
-  if (splitType === "equal") {
-    if (!participants || participants.length === 0) {
-      return res.status(400).json({ error: "Participants required" });
-    }
-
-    const splitAmount = amount / participants.length;
-
-    participants.forEach(userId => {
-      if (userId !== paidBy) {
-        addBalance(userId, paidBy, splitAmount);
-      }
-    });
-  }
-
-  // CUSTOM SPLIT
-  else if (splitType === "custom") {
-    if (!splits || splits.length === 0) {
-      return res.status(400).json({ error: "Splits required" });
-    }
-
-    const totalSplit = splits.reduce((sum, s) => sum + s.amount, 0);
-
-    if (totalSplit !== amount) {
-      return res.status(400).json({
-        error: "Split amounts do not match total expense",
-      });
-    }
-
-    splits.forEach(split => {
-      addBalance(split.userId, paidBy, split.amount);
-    });
-  }
-
-  else {
-    return res.status(400).json({ error: "Invalid split type" });
-  }
-
-  res.status(201).json({
-    message: "Expense added successfully",
-    balances,
-  });
-});
 
 // GET USERS
 app.get("/users", (req, res) => {
@@ -223,7 +179,8 @@ function settleBalances() {
   return settlements;
 }
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
