@@ -24,7 +24,7 @@ exports.sendInvite = async (req, res) => {
 
     const inviteLink = `${process.env.CLIENT_URL}/accept-invite/${token}`;
 
-    await sendEmail(
+    /* await sendEmail(
       email,
       "You're invited to join a group!",
       `
@@ -32,8 +32,8 @@ exports.sendInvite = async (req, res) => {
         <p>Click the link below to accept the invite:</p>
         <a href="${inviteLink}">${inviteLink}</a>
       `
-    );
-
+    ); */
+ 
     res.status(201).json({
       message: "Invite created and email sent successfully",
       invite,
@@ -41,6 +41,18 @@ exports.sendInvite = async (req, res) => {
 
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+exports.getInvitesByGroup = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const invites = await Invite.find({ group: groupId });
+
+    res.status(200).json({ invites });
+  } catch (err) {
+    console.error("Get invites error:", err);
     res.status(500).json({ error: err.message });
   }
 };
