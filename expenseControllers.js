@@ -1,51 +1,112 @@
 const Expense = require("../models/Expense");
+const Group = require("../models/Group");
 
-
-// CREATE EXPENSE (Memory Mode)
+// ================================
+// CREATE EXPENSE
+// ================================
 const createExpense = async (req, res) => {
   try {
-    const { title, amount, paidBy, participants } = req.body;
+    const { title, amount, group, splitType, splits } = req.body;
 
-    if (!title || !amount || !paidBy || !participants) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields are required",
-      });
+    if (!title || !amount || !group) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const newExpense = await Expense.create({
+    let finalSplits = [];
+
+    // =========================
+    // EQUAL SPLIT
+    // =========================
+    if (splitType === "equal") {
+      if (!splits || splits.length === 0) {
+        return res.status(400).json({ message: "Participants required" });
+      }
+
+      const share = Number((amount / splits.length).toFixed(2));
+
+      finalSplits = splits.map((userId) => ({
+        user: userId,
+        amount: share,
+      }));
+    }
+
+    // =========================
+    // EXACT SPLIT
+    // =========================
+    else if (splitType === "exact") {
+      if (!splits || splits.length === 0) {
+        return res.status(400).json({ message: "Splits required" });
+      }
+
+      const total = splits.reduce((sum, s) => sum + s.amount, 0);
+
+      if (Number(total.toFixed(2)) !== Number(amount.toFixed(2))) {
+        return res.status(400).json({
+          message: "Exact amounts must add up to total expense",
+        });
+      }
+
+      finalSplits = splits;
+    }
+
+    // =========================
+    // PERCENTAGE SPLIT
+    // =========================
+    else if (splitType === "percentage") {
+      if (!splits || splits.length === 0) {
+        return res.status(400).json({ message: "Splits required" });
+      }
+
+      const totalPercent = splits.reduce((sum, s) => sum + s.percent, 0);
+
+      if (totalPercent !== 100) {
+        return res.status(400).json({
+          message: "Percentages must add up to 100",
+        });
+      }
+
+      finalSplits = splits.map((s) => ({
+        user: s.user,
+        amount: Number(((s.percent / 100) * amount).toFixed(2)),
+      }));
+    } else {
+      return res.status(400).json({ message: "Invalid split type" });
+    }
+
+    const expense = await Expense.create({
       title,
       amount,
-      paidBy,
-      participants,
+      group,
+      paidBy: req.user._id,
+      splitType,
+      splits: finalSplits,
     });
 
     res.status(201).json({
       success: true,
-      message: "Expense created successfully 🎉",
-      data: newExpense,
+      data: expense,
     });
-
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
-
-// GET ALL EXPENSES
-const getAllExpenses = async (req, res) => {
+// ================================
+// GET EXPENSES BY GROUP
+// ================================
+const getExpensesByGroup = async (req, res) => {
   try {
-    const expenses = await Expense.find();
+    const { groupId } = req.params;
+
+    const expenses = await Expense.find({ group: groupId })
+      .populate("paidBy", "name email")
+      .populate("splits.user", "name email");
 
     res.status(200).json({
       success: true,
       count: expenses.length,
       data: expenses,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -54,26 +115,27 @@ const getAllExpenses = async (req, res) => {
   }
 };
 
-
-// CALCULATE NET BALANCES
+// ================================
+// CALCULATE BALANCES (PER GROUP)
+// ================================
 const getBalances = async (req, res) => {
   try {
-    const expenses = await Expense.find();
+    const { groupId } = req.params;
+
+    const expenses = await Expense.find({ group: groupId });
 
     let balances = {};
 
     expenses.forEach((expense) => {
-      const share = expense.amount / expense.participants.length;
+      expense.splits.forEach((split) => {
+        const userId = split.user.toString();
 
-      expense.participants.forEach((person) => {
-        const id = person.toString();
+        if (!balances[userId]) balances[userId] = 0;
 
-        if (!balances[id]) balances[id] = 0;
-
-        if (id === expense.paidBy.toString()) {
-          balances[id] += expense.amount - share;
+        if (expense.paidBy.toString() === userId) {
+          balances[userId] += expense.amount - split.amount;
         } else {
-          balances[id] -= share;
+          balances[userId] -= split.amount;
         }
       });
     });
@@ -82,7 +144,6 @@ const getBalances = async (req, res) => {
       success: true,
       data: balances,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -91,26 +152,27 @@ const getBalances = async (req, res) => {
   }
 };
 
-
+// ================================
 // SETTLEMENT MINIMIZATION
+// ================================
 const getSettlements = async (req, res) => {
   try {
-    const expenses = await Expense.find();
+    const { groupId } = req.params;
+
+    const expenses = await Expense.find({ group: groupId });
 
     let balances = {};
 
     expenses.forEach((expense) => {
-      const share = expense.amount / expense.participants.length;
-
-      expense.participants.forEach((person) => {
-        const id = person.toString();
+      expense.splits.forEach((split) => {
+        const id = split.user.toString();
 
         if (!balances[id]) balances[id] = 0;
 
         if (id === expense.paidBy.toString()) {
-          balances[id] += expense.amount - share;
+          balances[id] += expense.amount - split.amount;
         } else {
-          balances[id] -= share;
+          balances[id] -= split.amount;
         }
       });
     });
@@ -137,7 +199,7 @@ const getSettlements = async (req, res) => {
       settlements.push({
         from: debtor.person,
         to: creditor.person,
-        amount: settleAmount,
+        amount: Number(settleAmount.toFixed(2)),
       });
 
       creditor.amount -= settleAmount;
@@ -151,7 +213,6 @@ const getSettlements = async (req, res) => {
       success: true,
       data: settlements,
     });
-
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -160,10 +221,67 @@ const getSettlements = async (req, res) => {
   }
 };
 
+// ================================
+// CREATE PERSONAL EXPENSE
+// ================================
+const createPersonalExpense = async (req, res) => {
+  try {
+    const { title, amount, category, isPaid } = req.body;
+
+    if (!title || !amount) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const expense = await Expense.create({
+      title,
+      amount,
+      category,
+      isPaid: isPaid !== undefined ? isPaid : true,
+      paidBy: req.user._id,
+      group: null,
+      splitType: "exact",
+      splits: [
+        {
+          user: req.user._id,
+          amount: amount,
+        },
+      ],
+    });
+
+    res.status(201).json({
+      success: true,
+      data: expense,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ================================
+// GET PERSONAL EXPENSES
+// ================================
+const getPersonalExpenses = async (req, res) => {
+  try {
+    const expenses = await Expense.find({
+      paidBy: req.user._id,
+      group: null,
+    }).sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: expenses.length,
+      data: expenses,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 module.exports = {
   createExpense,
-  getAllExpenses,
+  getExpensesByGroup,
   getBalances,
   getSettlements,
+  createPersonalExpense,
+  getPersonalExpenses,
 };

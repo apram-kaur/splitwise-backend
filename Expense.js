@@ -1,6 +1,20 @@
+console.log("Expense model loaded");
+
 const mongoose = require("mongoose");
 
-// Expense Schema
+const splitSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  amount: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
+});
+
 const expenseSchema = new mongoose.Schema(
   {
     title: {
@@ -15,26 +29,37 @@ const expenseSchema = new mongoose.Schema(
       min: 0,
     },
 
+    category: {
+      type: String,
+      default: "General",
+    },
+
+    isPaid: {
+      type: Boolean,
+      default: true,
+    },
+
+    group: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group",
+      default: null,
+    },
+
     paidBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // future-proofing
+      ref: "User",
       required: true,
     },
 
-    participants: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        required: true,
-      },
-    ],
+    splitType: {
+      type: String,
+      enum: ["equal", "exact", "percentage"],
+      default: "equal",
+    },
+
+    splits: [splitSchema],
   },
-  {
-    timestamps: true, // adds createdAt & updatedAt
-  }
+  { timestamps: true }
 );
 
-// Create model
-const Expense = mongoose.model("Expense", expenseSchema);
-
-module.exports = Expense;
+module.exports = mongoose.model("Expense", expenseSchema);
